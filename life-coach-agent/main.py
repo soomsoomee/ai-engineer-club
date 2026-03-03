@@ -1,0 +1,127 @@
+import streamlit as st
+from agents import (
+    Agent,
+    Runner,
+    SQLiteSession,
+    WebSearchTool,
+)
+import asyncio
+import dotenv
+import os
+
+dotenv.load_dotenv()
+
+
+if "session" not in st.session_state:
+    st.session_state["session"] = SQLiteSession(
+        "chat-history", 
+        "life-coach-memory.db")
+session = st.session_state["session"]
+
+
+def get_event_type(data):
+    if hasattr(data, "type"):
+        return data.type
+    if isinstance(data, dict):
+        return data.get("type")
+    return None
+
+
+def update_status(status_container, event_type: str):
+    status_messages = {
+        "response.web_search_call.completed": ("✅ Web search completed.", "complete"),
+        "response.web_search_call.in_progress": ("🔎 Starting web search...", "running"),
+        "response.web_search_call.searching": ("🔎 Web search in progress...", "running"),
+        "response.completed": ("", "complete"),
+    }
+    if event_type in status_messages:
+        label, state = status_messages[event_type]
+        status_container.update(label=label, state=state)
+
+
+async def run_agent(message):
+    agent = Agent(
+        name = "Life Coach",
+        instructions = """
+당신은 전문적인 라이프 코치입니다. 사용자의 개인적 성장과 목표 달성을 돕는 것이 주요 역할입니다.
+
+핵심 역할:
+1. 동기부여: 사용자가 목표를 향해 나아갈 수 있도록 격려하고 동기를 부여합니다
+2. 자기개발 조언: 개인의 강점을 발견하고 약점을 개선할 수 있는 구체적인 방법을 제시합니다
+3. 습관 형성 지원: 좋은 습관을 만들고 나쁜 습관을 고치는 실용적인 전략을 제공합니다
+
+웹 검색 활용 원칙:
+- 사용자의 질문이나 고민에 대해 ALWAYS 관련 웹 검색을 먼저 수행합니다
+- 최신 연구 결과, 전문가 조언, 실용적인 팁을 찾기 위해 적극적으로 검색합니다
+- 검색 키워드는 구체적이고 한국어로 작성합니다
+- 예시: "아침 일찍 일어나는 방법", "습관 만들기 과학적 방법", "동기부여 심리학 연구"
+
+대화 스타일:
+- 따뜻하고 공감적인 톤으로 대화합니다
+- 웹 검색으로 찾은 최신 정보와 과학적 근거를 바탕으로 조언합니다
+- 구체적이고 실행 가능한 조언을 제공합니다
+- 사용자의 상황과 감정을 깊이 이해하려 노력합니다
+- 작은 성취도 인정하고 격려합니다
+
+항상 한국어로 답변하며, 사용자가 스스로 답을 찾아갈 수 있도록 질문을 통해 생각을 유도합니다.
+        """,
+        tools = [
+            WebSearchTool(),
+        ],
+    )
+
+    with st.chat_message("ai"):
+        status_container = st.status("⏳", expanded=False)
+        text_placeholder = st.empty()
+        st.session_state["text_placeholder"] = text_placeholder
+        response = ""
+
+        stream = Runner.run_streamed(
+                agent, 
+                message, 
+                session=session)
+
+        async for event in stream.stream_events():
+            if event.type == "raw_response_event":
+                event_type = get_event_type(event.data)
+                if event_type:
+                    update_status(status_container, event_type)
+                if event_type == "response.output_text.delta":
+                    response += getattr(event.data, "delta", "") or event.data.get("delta", "")
+                    text_placeholder.write(response.replace("$", "\\$"))
+
+
+async def paint_history():
+    messages = await session.get_items()
+    for message in messages:
+        if "role" in message:
+            with st.chat_message(message["role"]):
+                if message["role"] == "user":
+                    content = message["content"]
+                    if isinstance(content, str):
+                        st.write(content)
+                else:
+                    if message["type"] == "message":
+                        st.write(message["content"][0]["text"].replace("$", "\$"))
+        if "type" in message:
+            message_type = message["type"]
+            if message_type == "web_search_call":
+                with st.chat_message("ai"):
+                    st.write(f"🔎 다음 키워드에 대해 검색: {message['action']['query']}")
+
+asyncio.run(paint_history())
+
+
+prompt = st.chat_input("메시지를 입력하세요")
+
+if prompt:
+    with st.chat_message("human"):
+        st.write(prompt)
+    asyncio.run(run_agent(prompt))
+
+
+with st.sidebar:
+    reset = st.button("Reset Memory")
+    if reset:
+        asyncio.run(session.clear_session())
+    st.write(asyncio.run(session.get_items()))
