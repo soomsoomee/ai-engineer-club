@@ -1,16 +1,19 @@
 import streamlit as st
+from openai import OpenAI
 from agents import (
     Agent,
     Runner,
     SQLiteSession,
     WebSearchTool,
+    FileSearchTool
 )
 import asyncio
 import dotenv
 import os
 
 dotenv.load_dotenv()
-
+VECTOR_STORE_ID = os.getenv("VECTOR_STORE_ID")
+client = OpenAI()
 
 if "session" not in st.session_state:
     st.session_state["session"] = SQLiteSession(
@@ -32,6 +35,9 @@ def update_status(status_container, event_type: str):
         "response.web_search_call.completed": ("✅ Web search completed.", "complete"),
         "response.web_search_call.in_progress": ("🔎 Starting web search...", "running"),
         "response.web_search_call.searching": ("🔎 Web search in progress...", "running"),
+        "response.file_search_call.completed": ("✅ File search completed.", "complete"),
+        "response.file_search_call.in_progress": ("📂 Starting file search...", "running"),
+        "response.file_search_call.searching": ("📂 File search in progress...", "running"),
         "response.completed": ("", "complete"),
     }
     if event_type in status_messages:
@@ -51,10 +57,13 @@ async def run_agent(message):
 3. 습관 형성 지원: 좋은 습관을 만들고 나쁜 습관을 고치는 실용적인 전략을 제공합니다
 
 웹 검색 활용 원칙:
-- 사용자의 질문이나 고민에 대해 ALWAYS 관련 웹 검색을 먼저 수행합니다
+- 사용자의 질문이나 고민에 대해 답변할 때는 최대한 관련 웹 검색을 먼저 수행합니다
 - 최신 연구 결과, 전문가 조언, 실용적인 팁을 찾기 위해 적극적으로 검색합니다
 - 검색 키워드는 구체적이고 한국어로 작성합니다
 - 예시: "아침 일찍 일어나는 방법", "습관 만들기 과학적 방법", "동기부여 심리학 연구"
+
+파일 검색 활용 원칙:
+- 사용자의 개인적인 질문이나 고민에 대해 답변할 때는 최대한 관련 파일을 검색합니다
 
 대화 스타일:
 - 따뜻하고 공감적인 톤으로 대화합니다
@@ -67,6 +76,10 @@ async def run_agent(message):
         """,
         tools = [
             WebSearchTool(),
+            FileSearchTool(
+                    vector_store_ids=[VECTOR_STORE_ID],
+                    max_num_results=3
+                )
         ],
     )
 
@@ -108,16 +121,41 @@ async def paint_history():
             if message_type == "web_search_call":
                 with st.chat_message("ai"):
                     st.write(f"🔎 다음 키워드에 대해 검색: {message['action']['query']}")
+            elif message_type == "file_search_call":
+                with st.chat_message("ai"):
+                    st.write(f"📂 Searched your files for [{message['queries'][0]}]...")
 
 asyncio.run(paint_history())
 
-
-prompt = st.chat_input("메시지를 입력하세요")
+prompt = st.chat_input(
+    "Write a message for your assistant",
+    accept_file=True,
+    file_type=[
+        "txt"
+        ]
+    )
 
 if prompt:
-    with st.chat_message("human"):
-        st.write(prompt)
-    asyncio.run(run_agent(prompt))
+
+    for file in prompt.files:
+        if file.type.startswith("text/"):
+            with st.chat_message("ai"):
+                with st.status("📄 Uploading file...") as status:
+                    uploaded_file = client.files.create(
+                        file=(file.name, file.getvalue()),
+                        purpose="user_data"
+                    )
+                    status.update(label="📄 Attaching file...")
+                    client.vector_stores.files.create(
+                        vector_store_id=VECTOR_STORE_ID,
+                        file_id=uploaded_file.id
+                    )
+                    status.update(label="📄 File uploaded.", state="complete")
+
+    if prompt.text:
+        with st.chat_message("human"):
+            st.write(prompt.text)
+        asyncio.run(run_agent(prompt.text))
 
 
 with st.sidebar:
