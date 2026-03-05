@@ -5,11 +5,13 @@ from agents import (
     Runner,
     SQLiteSession,
     WebSearchTool,
-    FileSearchTool
+    FileSearchTool,
+    ImageGenerationTool,
 )
 import asyncio
 import dotenv
 import os
+import base64
 
 dotenv.load_dotenv()
 VECTOR_STORE_ID = os.getenv("VECTOR_STORE_ID")
@@ -38,6 +40,9 @@ def update_status(status_container, event_type: str):
         "response.file_search_call.completed": ("✅ File search completed.", "complete"),
         "response.file_search_call.in_progress": ("📂 Starting file search...", "running"),
         "response.file_search_call.searching": ("📂 File search in progress...", "running"),
+        "response.image_generation_call.generating": ("🎨 Generating image...", "running"),
+        "response.image_generation_call.completed": ("✅ Image generated.", "complete"),
+        "response.image_generation_call.in_progress": ("🎨 Starting image generation...", "running"),
         "response.completed": ("", "complete"),
     }
     if event_type in status_messages:
@@ -65,6 +70,14 @@ async def run_agent(message):
 파일 검색 활용 원칙:
 - 사용자의 개인적인 질문이나 고민에 대해 답변할 때는 최대한 관련 파일을 검색합니다
 
+이미지 생성 활용 원칙:
+- 사용자가 이미지 제작을 원하면 ImageGenerationTool을 적극적으로 사용합니다
+- 아래 유형의 이미지를 요청하면 구체적인 구성 요소를 확인한 뒤 생성합니다
+- 목표 기반 비전 보드: 핵심 목표, 마감 시점, 실천 항목이 한눈에 보이게 구성합니다
+- 맞춤 메시지가 담긴 동기부여 포스터: 사용자의 상황에 맞는 짧고 강한 문구를 포함합니다
+- 진행 상황의 시각적 표현: 단계, 퍼센트, 마일스톤을 쉽게 이해할 수 있는 형태로 표현합니다
+- 이미지를 생성할 때는 사용자가 원하는 톤, 색감, 텍스트 포함 여부를 먼저 확인합니다
+
 대화 스타일:
 - 따뜻하고 공감적인 톤으로 대화합니다
 - 웹 검색으로 찾은 최신 정보와 과학적 근거를 바탕으로 조언합니다
@@ -79,13 +92,23 @@ async def run_agent(message):
             FileSearchTool(
                     vector_store_ids=[VECTOR_STORE_ID],
                     max_num_results=3
-                )
+                ),
+                ImageGenerationTool(
+                    tool_config={
+                        "type": "image_generation",
+                        "quality": "high",
+                        "output_format": "jpeg",
+                        "moderation": "low",
+                        "partial_images": 1
+                    }
+                ),
         ],
     )
 
-    with st.chat_message("ai"):
+    with st.chat_message("ai"): 
         status_container = st.status("⏳", expanded=False)
         text_placeholder = st.empty()
+        image_placeholder = st.empty()
         st.session_state["text_placeholder"] = text_placeholder
         response = ""
 
@@ -102,6 +125,10 @@ async def run_agent(message):
                 if event_type == "response.output_text.delta":
                     response += getattr(event.data, "delta", "") or event.data.get("delta", "")
                     text_placeholder.write(response.replace("$", "\\$"))
+                elif event_type == "response.image_generation_call.partial_image":
+                        image_b64 = getattr(event.data, "partial_image_b64", None) or event.data.get("partial_image_b64")
+                        if image_b64:
+                            image_placeholder.image(base64.b64decode(image_b64))
 
 
 async def paint_history():
@@ -124,6 +151,10 @@ async def paint_history():
             elif message_type == "file_search_call":
                 with st.chat_message("ai"):
                     st.write(f"📂 Searched your files for [{message['queries'][0]}]...")
+            elif message_type == "image_generation_call":
+                with st.chat_message("ai"):
+                    image = base64.b64decode(message["result"])
+                    st.image(image)
 
 asyncio.run(paint_history())
 
