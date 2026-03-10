@@ -1,0 +1,10 @@
+__pycache__/
+.env
+.venv/
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/
+.pytest_cache/
+*.db
