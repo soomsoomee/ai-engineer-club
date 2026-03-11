@@ -3,7 +3,7 @@ dotenv.load_dotenv()
 from openai import OpenAI
 import asyncio
 import streamlit as st
-from agents import Runner, SQLiteSession, InputGuardrailTripwireTriggered
+from agents import Runner, SQLiteSession, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered
 from my_agents.triage_agent import triage_agent
 
 client = OpenAI()
@@ -72,7 +72,9 @@ async def run_agent(message):
                         response = ""
 
         except InputGuardrailTripwireTriggered:
-            st.write("I can't help you with that.")
+            st.write("이 질문에는 답변드릴 수 없습니다.")
+        except OutputGuardrailTripwireTriggered:
+            st.write("AI가 적절하지 않은 응답을 생성하여 중단되었습니다.")
 
 
 message = st.chat_input(
