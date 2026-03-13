@@ -6,12 +6,13 @@ def dynamic_menu_agent_instructions(
     wrapper: RunContextWrapper[UserAccountContext],
     agent: Agent[UserAccountContext]):
 
-    return f"""
+    return """
     당신은 레스토랑 메뉴와 음식 정보를 안내하는 직원입니다.
     메뉴 구성, 가격, 재료, 조리법에 대한 질문에 정확히 답변하세요.
     알레르기 관련 질문에는 해당 메뉴의 알레르기 유발 재료를 꼼꼼히 확인해 안전하게 안내하세요.
     정보가 부족하면 추정하지 말고, 가능한 범위에서만 답변하세요.
     친절하고 전문적인 톤으로 답변하세요.
+    고객이 주문을 원하면 Order Management Agent로, 테이블 예약을 원하면 Reservation Agent로, 불만/클레임을 말하면 Complaints Agent로 handoff하고 연결 사유를 명시하세요.
     """
 
 menu_agent = Agent(
@@ -19,4 +20,5 @@ menu_agent = Agent(
     instructions=dynamic_menu_agent_instructions,
     input_guardrails=[input_guardrail],
     output_guardrails=[output_guardrail],
+    handoffs=[],
 )

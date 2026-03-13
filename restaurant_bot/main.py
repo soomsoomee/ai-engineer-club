@@ -1,12 +1,27 @@
 import dotenv
 dotenv.load_dotenv()
-from openai import OpenAI
 import asyncio
 import streamlit as st
 from agents import Runner, SQLiteSession, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered
 from my_agents.triage_agent import triage_agent
+import my_agents.wire_handoffs
 
-client = OpenAI()
+AGENT_COLORS = {
+    "Triage Agent": "#64748b",
+    "Menu Agent": "#22c55e",
+    "Order Management Agent": "#f97316",
+    "Reservation Agent": "#3b82f6",
+    "Complaints Agent": "#a855f7",
+}
+DEFAULT_AGENT_COLOR = "#94a3b8"
+
+
+def render_agent_header(agent_name: str) -> None:
+    color = AGENT_COLORS.get(agent_name, DEFAULT_AGENT_COLOR)
+    st.markdown(
+        f'<div style="border-left: 4px solid {color}; padding-left: 10px; margin-bottom: 10px;"><strong>{agent_name}</strong></div>',
+        unsafe_allow_html=True,
+    )
 
 
 if "session" not in st.session_state:
@@ -29,6 +44,8 @@ async def paint_history():
                     st.write(message["content"])
                 else:
                     if message["type"] == "message":
+                        agent_name = message.get("name") or "Assistant"
+                        render_agent_header(agent_name)
                         st.write(message["content"][0]["text"].replace("$", "\$"))
 
 
@@ -36,15 +53,13 @@ asyncio.run(paint_history())
 
 
 async def run_agent(message):
-
     with st.chat_message("ai"):
+        render_agent_header(st.session_state["agent"].name)
         text_placeholder = st.empty()
         response = ""
-
         st.session_state["text_placeholder"] = text_placeholder
 
         try:
-
             stream = Runner.run_streamed(
                 st.session_state["agent"],
                 message,
@@ -53,21 +68,18 @@ async def run_agent(message):
 
             async for event in stream.stream_events():
                 if event.type == "raw_response_event":
-
                     if event.data.type == "response.output_text.delta":
                         response += event.data.delta
                         text_placeholder.write(response.replace("$", "\$"))
 
                 elif event.type == "agent_updated_stream_event":
-
                     if st.session_state["agent"].name != event.new_agent.name:
-                        
-                        st.write(f"🤖 Transfered from {st.session_state["agent"].name} to {event.new_agent.name}")
-
+                        st.caption(
+                            f"Transferred from {st.session_state['agent'].name} to {event.new_agent.name}"
+                        )
                         st.session_state["agent"] = event.new_agent
-
+                        render_agent_header(event.new_agent.name)
                         text_placeholder = st.empty()
-
                         st.session_state["text_placeholder"] = text_placeholder
                         response = ""
 
