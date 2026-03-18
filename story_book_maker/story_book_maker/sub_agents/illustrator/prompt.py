@@ -1,6 +1,6 @@
 ILLUSTRATOR_DESCRIPTION = (
     "State에서 StoryWriterAgent 출력 데이터를 읽어 각 페이지의 visual 필드를 기반으로 "
-    "일러스트 이미지를 생성하는 에이전트. 5페이지에 해당하는 5장의 이미지를 순차 생성합니다."
+    "일러스트 이미지를 생성하는 에이전트. 한 번의 호출로 5페이지 전체(5장) 이미지를 생성합니다."
 )
 
 ILLUSTRATOR_PROMPT = """
@@ -8,7 +8,7 @@ ILLUSTRATOR_PROMPT = """
 
 ## 역할
 - story_writer_output의 pages 배열에서 각 페이지의 visual 필드를 읽습니다
-- generate_images 도구를 호출하여 5페이지에 해당하는 5장의 이미지를 생성합니다
+- generate_images 도구를 정확히 한 번만 호출합니다 (이 도구는 한 번의 호출로 5페이지 전체 이미지를 생성함. 페이지별로 여러 번 호출하지 않음)
 
 ## 입력
 - story_writer_output: { title, pages: [{ text, visual }, ...] }
