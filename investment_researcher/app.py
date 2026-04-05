@@ -7,6 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from agents.chat_agent import handle_chat_query
 from graph import graph
 
 # ─── 상수 ─────────────────────────────────────────────────────
@@ -123,6 +124,65 @@ if "viewing_report" in st.session_state:
 
     st.divider()
     st.markdown(rpt["report"])
+
+    # ─── 채팅 섹션 ────────────────────────────────────────────
+    st.divider()
+    st.subheader("💬 보고서 관련 질문")
+    st.caption("보고서 내용을 바탕으로 추가 질문을 해보세요. 최신 정보가 필요한 경우 자동으로 검색합니다.")
+
+    chat_key = f"chat_{st.session_state['viewing_report']}"
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
+
+    # 이전 대화 표시
+    for msg in st.session_state[chat_key]:
+        with st.chat_message(msg["role"]):
+            if msg.get("is_guardrail"):
+                st.warning(msg["content"])
+            elif msg.get("is_error"):
+                st.error(msg["content"])
+            else:
+                st.markdown(msg["content"])
+            if msg.get("search_results"):
+                with st.expander("🔍 검색된 최신 뉴스 출처"):
+                    for item in msg["search_results"]:
+                        st.markdown(f"- [{item['title']}]({item['link']}) — {item['source']} ({item['pubDate']})")
+
+    # 채팅 입력
+    if prompt := st.chat_input("보고서 내용에 대해 질문해보세요..."):
+        st.session_state[chat_key].append({"role": "user", "content": prompt})
+
+        with st.spinner("분석 중..."):
+            result = handle_chat_query(
+                question=prompt,
+                report=rpt["report"],
+                ticker=rpt["ticker"],
+                chat_history=st.session_state[chat_key][:-1],
+            )
+
+        if result["error"] == "guardrail":
+            st.session_state[chat_key].append({
+                "role": "assistant",
+                "content": result["answer"],
+                "is_guardrail": True,
+                "search_results": [],
+            })
+        elif result["error"]:
+            st.session_state[chat_key].append({
+                "role": "assistant",
+                "content": f"오류가 발생했습니다: {result['error']}",
+                "is_error": True,
+                "search_results": [],
+            })
+        else:
+            st.session_state[chat_key].append({
+                "role": "assistant",
+                "content": result["answer"],
+                "search_results": result.get("search_results", []),
+            })
+
+        st.rerun()
+
     st.stop()
 
 # 신규 리서치 모드
